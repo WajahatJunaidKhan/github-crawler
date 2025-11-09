@@ -1,0 +1,61 @@
+name: Crawl 100k GitHub Repos
+
+on:
+  workflow_dispatch:
+
+jobs:
+  crawl_old:
+    name: Crawl 2010–2014
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: [5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      START_YEAR: 2010
+      END_YEAR: 2014
+      REPOS_TO_FETCH: 25000
+      CREATED_WINDOW_DAYS: 7
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+      - name: Setup schema
+        run: |
+          psql "postgresql://postgres:postgres@localhost:5432/postgres" -f db_init.sql
+      - name: Crawl repos
+        run: python crawler.py
+      - name: Dump to CSV
+        run: |
+          psql -h localhost -U postgres -d postgres -c "\copy (SELECT * FROM repositories) TO 'repos_old.csv' CSV HEADER"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: repos_2010_2014
+          path: repos_old.csv
+
+  crawl_mid:
+    name: Crawl 2015–2017
+    uses: ./.github/workflows/crawl.yml
+    secrets: inherit
+    with:
+      START_YEAR: 2015
+      END_YEAR: 2017
+      ARTIFACT_NAME: repos_2015_2017
