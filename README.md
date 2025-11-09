@@ -52,13 +52,13 @@ The solution is designed to be **scalable, automated, and efficient**, following
   }
 
 
-  Pagination handled via endCursor and hasNextPage.
+- Pagination handled via endCursor and hasNextPage.
 
-Retry mechanism for temporary API failures.
+- Retry mechanism for temporary API failures.
 
-Efficient insertion into Postgres using ON CONFLICT.
+- Efficient insertion into Postgres using ON CONFLICT.
 
-Database (db_init.sql)
+### Database (db_init.sql)
 
 Table repositories:
 
@@ -71,27 +71,27 @@ CREATE TABLE IF NOT EXISTS repositories (
 );
 
 
-Flexible to add additional metadata in the future without affecting existing rows.
+# Flexible to add additional metadata in the future without affecting existing rows.
 
-GitHub Actions Workflow (.github/workflows/crawl.yml)
+# GitHub Actions Workflow (.github/workflows/crawl.yml)
 
-Sets up Postgres service container.
+# Sets up Postgres service container.
 
-Installs Python and dependencies.
+# Installs Python and dependencies.
 
-Runs the crawler script.
+# Runs the crawler script.
 
-Dumps CSV (\copy) and uploads as artifact.
+# Dumps CSV (\copy) and uploads as artifact.
 
-Fully automated and reproducible with workflow_dispatch.
+# Fully automated and reproducible with workflow_dispatch.
 
-API Limitation Note
+### API Limitation Note
 
-GitHub Search API Limit: Each search query returns up to 1,000 results, even with pagination.
+**GitHub Search API Limit: Each search query returns up to 1,000 results, even with pagination.
 
-Therefore, in this implementation, each shard currently fetches ~1,000 repositories.
+Therefore, in this implementation, each shard currently fetches ~1,000 repositories.** 
 
-Scaling strategy:
+### Scaling strategy:
 
 Use multiple date ranges or star ranges to create non-overlapping queries.
 
@@ -101,14 +101,14 @@ Combining artifacts allows fetching 100,000+ repositories.
 
 This demonstrates understanding of API limits and a professional approach to large-scale crawling.
 
-Running Locally
+### Running Locally
 
-Install dependencies:
+### Install dependencies:
 
 pip install -r requirements.txt
 
 
-Set environment variables:
+### Set environment variables:
 
 export GITHUB_TOKEN=<your_token>
 export POSTGRES_USER=postgres
@@ -118,21 +118,21 @@ export POSTGRES_HOST=localhost
 export POSTGRES_PORT=5432
 
 
-Initialize database:
+### Initialize database:
 
 psql -U postgres -d postgres -f db_init.sql
 
 
-Run crawler:
+### Run crawler:
 
 python crawler.py
 
 
-Inspect database or export CSV:
+### Inspect database or export CSV:
 
 psql -U postgres -d postgres -c "\copy (SELECT * FROM repositories) TO 'repos.csv' CSV HEADER"
 
-Key Takeaways
+### Key Takeaways
 
 Demonstrates clean architecture principles:
 
@@ -145,8 +145,6 @@ Robust error handling
 Workflow-ready: GitHub Actions automation ensures reproducible results.
 
 Scalable design: Ready to handle hundreds of thousands of repositories with multiple shards.
-
-
 
 
 
@@ -193,10 +191,8 @@ To gather more metadata such as **issues, pull requests, commits, comments, revi
        url TEXT,
        last_scraped TIMESTAMP
    );
-Pull Requests Table (one-to-many with repositories)
+## Pull Requests Table (one-to-many with repositories)
 
-sql
-Copy code
 CREATE TABLE pull_requests (
     pr_id TEXT PRIMARY KEY,
     repo_id TEXT REFERENCES repositories(repo_id),
@@ -206,10 +202,9 @@ CREATE TABLE pull_requests (
     updated_at TIMESTAMP,
     last_scraped TIMESTAMP
 );
-Commits Table (one-to-many with pull requests)
+## Commits Table (one-to-many with pull requests)
 
-sql
-Copy code
+
 CREATE TABLE commits (
     commit_sha TEXT PRIMARY KEY,
     pr_id TEXT REFERENCES pull_requests(pr_id),
@@ -217,10 +212,8 @@ CREATE TABLE commits (
     message TEXT,
     created_at TIMESTAMP
 );
-Comments Table (for issues and pull requests)
+## Comments Table (for issues and pull requests)
 
-sql
-Copy code
 CREATE TABLE comments (
     comment_id TEXT PRIMARY KEY,
     parent_type TEXT, -- 'issue' or 'pull_request'
@@ -230,10 +223,9 @@ CREATE TABLE comments (
     created_at TIMESTAMP,
     updated_at TIMESTAMP
 );
-Reviews & CI Checks
+### Reviews & CI Checks
 
-sql
-Copy code
+
 CREATE TABLE reviews (
     review_id TEXT PRIMARY KEY,
     pr_id TEXT REFERENCES pull_requests(pr_id),
@@ -249,7 +241,9 @@ CREATE TABLE ci_checks (
     conclusion TEXT,
     created_at TIMESTAMP
 );
-Efficient Updates
+
+
+### Efficient Updates
 Use UPSERT / ON CONFLICT to update only changed rows.
 
 Track last_scraped and updated_at timestamps to identify new or updated records.
