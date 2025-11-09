@@ -62,7 +62,7 @@ The solution is designed to be **scalable, automated, and efficient**, following
 
 Table repositories:
 
-CREATE TABLE IF NOT EXISTS repositories (
+```CREATE TABLE IF NOT EXISTS repositories (
     repo_id TEXT PRIMARY KEY,
     full_name TEXT NOT NULL,
     stars INT,
