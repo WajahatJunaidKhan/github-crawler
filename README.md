@@ -1,4 +1,4 @@
-# GitHub Crawler Assignment 
+   # GitHub Crawler Assignment 
 
 ## Submission Note
 **Due to GitHub API search limits, each search query returns a maximum of 1,000 repositories.**  
@@ -145,3 +145,119 @@ Robust error handling
 Workflow-ready: GitHub Actions automation ensures reproducible results.
 
 Scalable design: Ready to handle hundreds of thousands of repositories with multiple shards.
+
+
+
+
+
+
+## Discussion & Scaling
+
+### Scaling to 500 Million Repositories
+Fetching 500 million repositories is a massive-scale operation, and the approach would need to change compared to crawling 100,000 repos:
+
+1. **Sharding & Parallelization**
+   - Split the data into fine-grained shards using creation date, star ranges, or programming language.
+   - Run hundreds or thousands of parallel jobs, either in GitHub Actions or a distributed pipeline (e.g., Airflow, Prefect, or Celery workers).
+
+2. **Incremental Crawling**
+   - Instead of fetching all 500 million repos repeatedly, fetch **only new or updated repositories daily** using timestamps like `updatedAt` or `pushedAt`.
+
+3. **Distributed Database**
+   - Use a **sharded or distributed database** (e.g., CockroachDB, Amazon Aurora) to store and query large datasets efficiently.
+
+4. **Rate Limit Management**
+   - Manage multiple GitHub tokens.
+   - Implement exponential backoff and queueing to handle API rate limits safely.
+
+5. **Monitoring & Logging**
+   - Log all shard progress and errors.
+   - Use dashboards to monitor data completeness and crawling performance.
+
+6. **Batch Inserts and Table Partitioning**
+   - Insert and update data in batches.
+   - Partition large tables by repository ID or creation date to improve query and update efficiency.
+
+---
+
+### Schema Evolution for Additional Metadata
+To gather more metadata such as **issues, pull requests, commits, comments, reviews, and CI checks**, the database schema can evolve as follows:
+
+1. **Repositories Table**  
+   Stores basic repo information:
+   ```sql
+   CREATE TABLE repositories (
+       repo_id TEXT PRIMARY KEY,
+       full_name TEXT NOT NULL,
+       stars INT,
+       url TEXT,
+       last_scraped TIMESTAMP
+   );
+Pull Requests Table (one-to-many with repositories)
+
+sql
+Copy code
+CREATE TABLE pull_requests (
+    pr_id TEXT PRIMARY KEY,
+    repo_id TEXT REFERENCES repositories(repo_id),
+    title TEXT,
+    state TEXT,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP,
+    last_scraped TIMESTAMP
+);
+Commits Table (one-to-many with pull requests)
+
+sql
+Copy code
+CREATE TABLE commits (
+    commit_sha TEXT PRIMARY KEY,
+    pr_id TEXT REFERENCES pull_requests(pr_id),
+    author TEXT,
+    message TEXT,
+    created_at TIMESTAMP
+);
+Comments Table (for issues and pull requests)
+
+sql
+Copy code
+CREATE TABLE comments (
+    comment_id TEXT PRIMARY KEY,
+    parent_type TEXT, -- 'issue' or 'pull_request'
+    parent_id TEXT,
+    author TEXT,
+    body TEXT,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+Reviews & CI Checks
+
+sql
+Copy code
+CREATE TABLE reviews (
+    review_id TEXT PRIMARY KEY,
+    pr_id TEXT REFERENCES pull_requests(pr_id),
+    reviewer TEXT,
+    state TEXT,
+    created_at TIMESTAMP
+);
+
+CREATE TABLE ci_checks (
+    check_id TEXT PRIMARY KEY,
+    pr_id TEXT REFERENCES pull_requests(pr_id),
+    status TEXT,
+    conclusion TEXT,
+    created_at TIMESTAMP
+);
+Efficient Updates
+Use UPSERT / ON CONFLICT to update only changed rows.
+
+Track last_scraped and updated_at timestamps to identify new or updated records.
+
+Insert new comments, commits, or PRs as separate rows instead of overwriting old ones.
+
+Partition large tables to minimize the number of rows affected by updates.
+
+This approach ensures efficient, minimal-impact database operations even as metadata grows over time.
+
+
