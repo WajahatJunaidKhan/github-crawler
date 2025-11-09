@@ -10,6 +10,8 @@ This implementation fetches ~1,000 repos per shard. The crawler is designed to s
 
 #### Result CSV File is present in the artifact it can be as accessed by Actions-> Workflow-> Success Run-> Artifact-> click to download
 
+#### 2 Scienario Questions Answers are at the end of Readme file.
+
 ## Overview
 
 This repository contains the implementation of a **GitHub Crawler** that fetches repository information (repo ID, full name, stars, URL, last scraped timestamp) using **GitHub's GraphQL API** and stores it in a **PostgreSQL database**.
