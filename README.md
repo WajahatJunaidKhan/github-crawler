@@ -280,7 +280,3 @@ CREATE TABLE ci_checks (
 This approach ensures efficient, minimal-impact database operations even as metadata grows over time.
 
 ---
-
-## Contributing
-
-[Add contributing guidelines here]
