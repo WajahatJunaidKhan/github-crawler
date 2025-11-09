@@ -46,16 +46,19 @@ query($q:String!, $first:Int, $after:String) {
     repositoryCount
     pageInfo { hasNextPage endCursor }
     nodes {
-      id
-      name
-      url
-      stargazerCount
-      owner { login }
-      createdAt
+      ... on Repository {
+        id
+        name
+        url
+        stargazerCount
+        owner { login }
+        createdAt
+      }
     }
   }
 }
 """
+
 
 def graphql_request(payload):
     for attempt in range(6):
