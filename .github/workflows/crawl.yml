@@ -26,6 +26,7 @@ jobs:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PGPASSWORD: postgres   
       START_YEAR: 2010
       END_YEAR: 2014
       REPOS_TO_FETCH: 1000
