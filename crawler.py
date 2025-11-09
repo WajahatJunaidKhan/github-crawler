@@ -6,52 +6,59 @@ Stores results in Postgres (repositories + daily star snapshot).
 """
 
 import os
-import time
-import json
-from datetime import datetime, timedelta
-from dateutil.parser import parse as dtparse
 import requests
 import psycopg2
-from psycopg2.extras import execute_values
+from datetime import datetime, timedelta
+import time
 
-# === Configuration ===
-GITHUB_GRAPHQL = "https://api.github.com/graphql"
+# Environment variables from GitHub Actions
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-PG_HOST = os.getenv("POSTGRES_HOST", "localhost")
-PG_PORT = int(os.getenv("POSTGRES_PORT", 5432))
-PG_DB = os.getenv("POSTGRES_DB", "postgres")
-PG_USER = os.getenv("POSTGRES_USER", "postgres")
-PG_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT = os.getenv("POSTGRES_PORT", 5432)
+POSTGRES_DB = os.getenv("POSTGRES_DB", "postgres")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "postgres")
 
-REPOS_TO_FETCH = int(os.getenv("REPOS_TO_FETCH", "25000"))
-PAGE_SIZE = 100
-WINDOW_DAYS = int(os.getenv("CREATED_WINDOW_DAYS", "7"))
-START_YEAR = int(os.getenv("START_YEAR", "2010"))
-END_YEAR = int(os.getenv("END_YEAR", "2014"))
+# Crawl configuration
+START_YEAR = int(os.getenv("START_YEAR", 2010))
+END_YEAR = int(os.getenv("END_YEAR", 2014))
+REPOS_PER_SHARD = int(os.getenv("REPOS_TO_FETCH", 25000))
+REPO_BATCH_SIZE = 50  # GitHub max 100 per request
 
-HEADERS = {
-    "Authorization": f"bearer {GITHUB_TOKEN}" if GITHUB_TOKEN else "",
-    "Accept": "application/vnd.github.v4+json",
-    "User-Agent": "github-crawler"
-}
+# Postgres connection
+conn = psycopg2.connect(
+    host=POSTGRES_HOST,
+    port=POSTGRES_PORT,
+    database=POSTGRES_DB,
+    user=POSTGRES_USER,
+    password=POSTGRES_PASSWORD
+)
+cursor = conn.cursor()
 
+# Create table if not exists
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS repositories (
+    repo_id TEXT PRIMARY KEY,
+    full_name TEXT,
+    stars INT,
+    url TEXT,
+    last_scraped TIMESTAMP
+)
+""")
+conn.commit()
+
+# GraphQL query template
 QUERY = """
-query($q:String!, $first:Int, $after:String) {
-  rateLimit {
-    cost
-    remaining
-    resetAt
-  }
+query($q:String!, $first:Int!, $after:String) {
   search(query:$q, type:REPOSITORY, first:$first, after:$after) {
     repositoryCount
     pageInfo { hasNextPage endCursor }
     nodes {
       ... on Repository {
         id
-        name
-        url
+        nameWithOwner
         stargazerCount
-        owner { login }
+        url
         createdAt
       }
     }
@@ -59,115 +66,77 @@ query($q:String!, $first:Int, $after:String) {
 }
 """
 
+HEADERS = {"Authorization": f"bearer {GITHUB_TOKEN}"}
 
-def graphql_request(payload):
-    for attempt in range(6):
-        r = requests.post(GITHUB_GRAPHQL, json=payload, headers=HEADERS, timeout=30)
+# Function to fetch a single batch of repos
+def fetch_repos(query, after_cursor=None):
+    variables = {"q": query, "first": REPO_BATCH_SIZE, "after": after_cursor}
+    for _ in range(5):  # Retry up to 5 times
+        r = requests.post("https://api.github.com/graphql", json={"query": QUERY, "variables": variables}, headers=HEADERS)
         if r.status_code == 200:
-            return r.json()
-        if r.status_code in (502, 503, 504):
-            wait = 2 ** attempt
-            print(f"Transient {r.status_code}, wait {wait}s...")
-            time.sleep(wait)
-            continue
-        print("GraphQL error:", r.status_code, r.text)
-        r.raise_for_status()
-    raise RuntimeError("GraphQL request failed after retries")
-
-def connect_db():
-    return psycopg2.connect(
-        host=PG_HOST, port=PG_PORT, dbname=PG_DB, user=PG_USER, password=PG_PASSWORD
-    )
-
-def upsert_repos(conn, repos):
-    sql = """
-    INSERT INTO repositories (repo_id, full_name, name, owner_login, stars, url, metadata, last_scraped)
-    VALUES %s
-    ON CONFLICT (repo_id) DO UPDATE
-      SET stars = EXCLUDED.stars,
-          metadata = COALESCE(EXCLUDED.metadata, repositories.metadata),
-          last_scraped = EXCLUDED.last_scraped;
-    """
-    vals = [(r['id'], r['full_name'], r['name'], r['owner'], r['stars'], r['url'],
-             json.dumps(r['meta']), datetime.utcnow()) for r in repos]
-    with conn.cursor() as cur:
-        execute_values(cur, sql, vals, page_size=100)
-    conn.commit()
-
-def upsert_history(conn, rows):
-    sql = """
-    INSERT INTO repo_star_history (repo_id, stars, snapshot_at)
-    VALUES %s
-    ON CONFLICT (repo_id, snapshot_at) DO UPDATE SET stars = EXCLUDED.stars;
-    """
-    with conn.cursor() as cur:
-        execute_values(cur, sql, rows, page_size=100)
-    conn.commit()
-
-def crawl_range(conn, start_date, end_date):
-    total = 0
-    now = datetime.utcnow().date()
-    current_start = start_date
-    while current_start < end_date and total < REPOS_TO_FETCH:
-        current_end = min(end_date, current_start + timedelta(days=WINDOW_DAYS))
-        query_str = f"is:public created:{current_start}..{current_end}"
-        cursor = None
-        has_next = True
-
-        while has_next and total < REPOS_TO_FETCH:
-            vars = {"q": query_str, "first": PAGE_SIZE, "after": cursor}
-            data = graphql_request({"query": QUERY, "variables": vars})
+            data = r.json()
             if "errors" in data:
                 print("GraphQL errors:", data["errors"])
-                break
-
-            rl = data["data"]["rateLimit"]
-            remaining = rl["remaining"]
-            resetAt = rl["resetAt"]
-            print(f"Rate remaining {remaining}, reset at {resetAt}")
-            if remaining < 50:
-                reset_ts = dtparse(resetAt).timestamp()
-                sleep_sec = max(1, int(reset_ts - time.time()) + 5)
-                print(f"Rate limit low, sleeping {sleep_sec}s")
-                time.sleep(sleep_sec)
-
+                return [], None, False
             search = data["data"]["search"]
-            repos = search["nodes"]
-            cursor = search["pageInfo"]["endCursor"]
-            has_next = search["pageInfo"]["hasNextPage"]
+            repos = [
+                {
+                    "repo_id": n["id"],
+                    "full_name": n["nameWithOwner"],
+                    "stars": n["stargazerCount"],
+                    "url": n["url"],
+                    "last_scraped": datetime.utcnow()
+                }
+                for n in search["nodes"]
+            ]
+            return repos, search["pageInfo"]["endCursor"], search["pageInfo"]["hasNextPage"]
+        else:
+            print("Request failed, status:", r.status_code)
+            time.sleep(2)
+    return [], None, False
 
-            mapped = []
-            hist = []
-            for r in repos:
-                mapped.append({
-                    "id": r["id"],
-                    "name": r["name"],
-                    "owner": r["owner"]["login"],
-                    "full_name": f"{r['owner']['login']}/{r['name']}",
-                    "stars": r["stargazerCount"],
-                    "url": r["url"],
-                    "meta": {"createdAt": r["createdAt"]}
-                })
-                hist.append((r["id"], r["stargazerCount"], now))
-            if mapped:
-                upsert_repos(conn, mapped)
-                upsert_history(conn, hist)
-                total += len(mapped)
-                print(f"Fetched {len(mapped)} repos; total {total}")
+# Function to insert repos into Postgres
+def upsert_repos(repos):
+    for r in repos:
+        cursor.execute("""
+        INSERT INTO repositories (repo_id, full_name, stars, url, last_scraped)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (repo_id) DO UPDATE
+        SET stars = EXCLUDED.stars,
+            url = EXCLUDED.url,
+            last_scraped = EXCLUDED.last_scraped
+        """, (r["repo_id"], r["full_name"], r["stars"], r["url"], r["last_scraped"]))
+    conn.commit()
 
-            time.sleep(0.2)
-
-        current_start = current_end + timedelta(days=1)
-
-    print(f"Done: {total} repos from {start_date} to {end_date}")
-
-def main():
-    print(f"Starting crawl for {START_YEAR}-{END_YEAR}, target {REPOS_TO_FETCH}")
-    conn = connect_db()
-    start = datetime(START_YEAR, 1, 1).date()
-    end = datetime(END_YEAR, 12, 31).date()
-    crawl_range(conn, start, end)
-    conn.close()
+# Main crawler logic
+def crawl():
+    all_repos = []
+    # Split by date shards to bypass 1,000 limit
+    delta = timedelta(days=30)  # 1 month per shard
+    for year in range(START_YEAR, END_YEAR + 1):
+        current = datetime(year, 1, 1)
+        while current.year <= year:
+            start_date = current.strftime("%Y-%m-%d")
+            end_date = (current + delta).strftime("%Y-%m-%d")
+            query = f"stars:>0 created:{start_date}..{end_date}"
+            after_cursor = None
+            while True:
+                repos, after_cursor, has_next = fetch_repos(query, after_cursor)
+                if not repos:
+                    break
+                upsert_repos(repos)
+                all_repos.extend(repos)
+                print(f"Fetched {len(all_repos)} repos so far for {start_date}..{end_date}")
+                if not has_next:
+                    break
+            current += delta
+            if len(all_repos) >= REPOS_PER_SHARD:
+                print(f"Reached target of {REPOS_PER_SHARD} repos for shard {START_YEAR}-{END_YEAR}")
+                return all_repos
+    return all_repos
 
 if __name__ == "__main__":
-    main()
+    crawl()
+    print("Crawl finished!")
+    cursor.close()
+    conn.close()
