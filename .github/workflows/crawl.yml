@@ -1,11 +1,10 @@
-name: Crawl 100k GitHub Repos
+name: Crawl GitHub Sample
 
 on:
   workflow_dispatch:
 
 jobs:
   crawl_2010_2014:
-    name: Crawl 2010–2014
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -29,9 +28,8 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       START_YEAR: 2010
       END_YEAR: 2014
-      REPOS_TO_FETCH: 25000
+      REPOS_TO_FETCH: 1000
       CREATED_WINDOW_DAYS: 7
-
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
@@ -42,168 +40,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Wait for Postgres
-        run: sleep 20
+        run: sleep 15
       - name: Setup schema
         run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f db_init.sql
       - name: Crawl repos
         run: python crawler.py
       - name: Dump to CSV
         run: |
-          psql -h localhost -U postgres -d postgres -c "\copy (SELECT * FROM repositories) TO 'repos_2010_2014.csv' CSV HEADER"
+          psql -h localhost -U postgres -d postgres -c "\copy (SELECT * FROM repositories) TO 'repos.csv' CSV HEADER"
       - uses: actions/upload-artifact@v4
         with:
           name: repos_2010_2014
-          path: repos_2010_2014.csv
-
-  crawl_2015_2017:
-    name: Crawl 2015–2017
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      START_YEAR: 2015
-      END_YEAR: 2017
-      REPOS_TO_FETCH: 25000
-      CREATED_WINDOW_DAYS: 7
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-      - name: Install Postgres client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Wait for Postgres
-        run: sleep 20
-      - name: Setup schema
-        run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f db_init.sql
-      - name: Crawl repos
-        run: python crawler.py
-      - name: Dump to CSV
-        run: |
-          psql -h localhost -U postgres -d postgres -c "\copy (SELECT * FROM repositories) TO 'repos_2015_2017.csv' CSV HEADER"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: repos_2015_2017
-          path: repos_2015_2017.csv
-
-  crawl_2018_2020:
-    name: Crawl 2018–2020
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      START_YEAR: 2018
-      END_YEAR: 2020
-      REPOS_TO_FETCH: 25000
-      CREATED_WINDOW_DAYS: 7
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-      - name: Install Postgres client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Wait for Postgres
-        run: sleep 20
-      - name: Setup schema
-        run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f db_init.sql
-      - name: Crawl repos
-        run: python crawler.py
-      - name: Dump to CSV
-        run: |
-          psql -h localhost -U postgres -d postgres -c "\copy (SELECT * FROM repositories) TO 'repos_2018_2020.csv' CSV HEADER"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: repos_2018_2020
-          path: repos_2018_2020.csv
-
-  crawl_2021_2025:
-    name: Crawl 2021–2025
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-    env:
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: 5432
-      POSTGRES_DB: postgres
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      START_YEAR: 2021
-      END_YEAR: 2025
-      REPOS_TO_FETCH: 25000
-      CREATED_WINDOW_DAYS: 7
-
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
-      - name: Install Postgres client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Wait for Postgres
-        run: sleep 20
-      - name: Setup schema
-        run: psql "postgresql://postgres:postgres@localhost:5432/postgres" -f db_init.sql
-      - name: Crawl repos
-        run: python crawler.py
-      - name: Dump to CSV
-        run: |
-          psql -h localhost -U postgres -d postgres -c "\copy (SELECT * FROM repositories) TO 'repos_2021_2025.csv' CSV HEADER"
-      - uses: actions/upload-artifact@v4
-        with:
-          name: repos_2021_2025
-          path: repos_2021_2025.csv
+          path: repos.csv
